@@ -19,11 +19,13 @@ class MainWindow(QMainWindow):
         self.resize(900, 600)
         self.button = QPushButton("파일선택")
         self.table = QTableWidget()
+        self.pid_table = QTableWidget()
         self.info = QLabel("분석 결과가 여기에 표시됩니다.")
 
         layout = QVBoxLayout()
         layout.addWidget(self.button)
         layout.addWidget(self.table)
+        layout.addWidget(self.pid_table)
         layout.addWidget(self.info)
 
         container = QWidget()
@@ -45,6 +47,8 @@ class MainWindow(QMainWindow):
 
         packets = result["packets"]
 
+        pid_count = result["pid_count"]
+
         self.table.setRowCount(len(packets))
         self.table.setColumnCount(5)
 
@@ -63,6 +67,22 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 2, QTableWidgetItem(str(packet["pusi"])))
             self.table.setItem(row, 3, QTableWidgetItem(str(packet["afc"])))
             self.table.setItem(row, 4, QTableWidgetItem(str(packet["cc"])))
+
+        self.pid_table.setColumnCount(3)
+
+        self.pid_table.setHorizontalHeaderLabels([
+            "PID",
+            "Packet Count",
+            "Ratio(%)"
+        ])
+
+        self.pid_table.setRowCount(len(pid_count))
+
+        for row, (pid, count) in enumerate(pid_count.items()):
+                    ratio = (count / result["total_packets"]) * 100
+                    self.pid_table.setItem(row, 0, QTableWidgetItem(str(pid)))
+                    self.pid_table.setItem(row, 1, QTableWidgetItem(str(count)))
+                    self.pid_table.setItem(row, 2, QTableWidgetItem(f"{ratio:.2f}"))
 
         self.info.setText(
             f"""총 패킷 : {result["total_packets"]}

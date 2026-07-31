@@ -1,5 +1,22 @@
 TS_PACKET_SIZE = 188
 
+# stream_type -> (코덱명, 미디어 타입)
+STREAM_TYPE_INFO = {
+    0x02: ("MPEG-2 Video", "video"),
+    0x1B: ("H.264 Video", "video"),
+    0x24: ("H.265 Video", "video"),
+    0x0F: ("AAC Audio", "audio"),
+    0x11: ("LATM AAC Audio", "audio"),
+    0x03: ("MPEG Audio", "audio"),
+    0x04: ("MPEG-2 Audio", "audio"),
+    0x81: ("AC-3 Audio", "audio"),
+    0x06: ("Private/Subtitle/Teletext", "other"),
+}
+ 
+LANGUAGE_DESCRIPTOR_TAG = 0x0A  # ISO_639_language_descriptor
+ 
+
+
 def analyze_ts(file_path):
     print("=== TS Analyzer ===")
 
@@ -18,24 +35,35 @@ def analyze_ts(file_path):
     with f:
 
         count = 0
+      
         
         pcr_pid = None
         pmt_pid = None
+
         last_cc ={}
         valid_pids ={0, 17}
-        pmt_parsed = False
+        pat_parsed = False
+
+        # PAT에서 얻은 프로그램 정보
+        programs ={}
+        pmt_pid_to_program ={}
+        network_pid = None
+        parsed_pmt_pids =set()
 
         pid_count ={}
 
         sync_error_count = 0
         cc_error_count = 0
         unknown_pid_count = 0
+        parse_error_count =0
 
         video_pid = None
         audio_pid = None
 
         video_codec = None
         audio_codec = None
+
+        pid_map ={}
 
         packets =[]
 
@@ -75,6 +103,11 @@ def analyze_ts(file_path):
                     pid_count[pid] += 1
                 else:
                     pid_count[pid] = 1
+                
+                # PMT가 하나 이상 파싱된 후부터 valid_pids 에 없는 PID는 unknown으로 집계
+                if parsed_pmt_pids and pid not in valid_pids:
+                    unknown_pid_count += 1
+                    print(f"[Unknown PID] Packet {count}: PID = {pid}")
 
                 scrambling_control = (packet[3] & 0xC0) >> 6
                 afc = (packet[3] & 0x30) >> 4
@@ -115,48 +148,70 @@ def analyze_ts(file_path):
                 })
 
 
-                # PAT Packet 확인
-                if pid == 0 and pusi == 1:
+                # PAT Packet 확인 (이미 파싱했으면 재파싱 안함)
+                if pid == 0 and pusi == 1 and not pat_parsed:
                     try:
                         print("\n===== PAT Packet 발견 =====")
-
+ 
                         # Pointer Field
                         pointer_field = packet[payload_start]
                         pat_start = payload_start + 1 + pointer_field
-
+ 
                         # Table ID
                         table_id = packet[pat_start]
-
+ 
                         print(f"Pointer Field : {pointer_field}")
                         print(f"Table ID      : 0x{table_id:02X}")
-
+ 
                         # PAT Table 확인
                         if table_id == 0x00:
-
+ 
                             section_length = (
                                 ((packet[pat_start + 1] & 0x0F) << 8)
                                 | packet[pat_start + 2]
                             )
-
-                            program_number = (packet[pat_start + 8] << 8) | packet[pat_start + 9]
-
+ 
                             print(f"Section Length : {section_length}")
-                            print(f"Program Number : {program_number}")
-
-                            # PMT PID 확인
-                            pmt_pid = ((packet[pat_start + 10] & 0x1F) << 8) | packet[pat_start + 11]
-                            valid_pids.add(pmt_pid)
-                            print(f"PMT PID        : {pmt_pid}")
-
+ 
+                            # 프로그램 목록 순회 (섹션 끝, CRC 4바이트 제외)
+                            section_end = pat_start + 3 + section_length - 4
+                            entry_start = pat_start + 8
+ 
+                            while entry_start + 4 <= section_end:
+                                program_number = (
+                                    (packet[entry_start] << 8) | packet[entry_start + 1]
+                                )
+                                entry_pid = (
+                                    ((packet[entry_start + 2] & 0x1F) << 8)
+                                    | packet[entry_start + 3]
+                                )
+ 
+                                if program_number == 0:
+                                    # program_number 0 은 PMT가 아니라 Network PID
+                                    network_pid = entry_pid
+                                    valid_pids.add(network_pid)
+                                    print(f"Network PID    : {network_pid}")
+                                else:
+                                    programs[program_number] = entry_pid
+                                    pmt_pid_to_program[entry_pid] = program_number
+                                    valid_pids.add(entry_pid)
+                                    pmt_pid = entry_pid  # 하위 호환용 (마지막 프로그램)
+                                    print(f"Program Number : {program_number}  ->  PMT PID : {entry_pid}")
+ 
+                                entry_start += 4
+ 
+                            pat_parsed = True
+ 
                     except IndexError as e:
                         parse_error_count += 1
-                        print(f"Error: PAT 파싱 중 오류 발생 (범위초과) : {e}")
+                        print(f"[PARSE ERROR] Packet {count}: PAT 파싱 중 오류 발생 (범위 초과): {e}")
 
-                # PMT Packet 확인
-                if pmt_pid is not None and pid == pmt_pid:
+                # PMT Packet 확인 (프로그램별로 한 번만 파싱)
+                if pid in pmt_pid_to_program and pid not in parsed_pmt_pids:
 
                     try:
-                        print("\n===== PMT Packet 발견 =====")
+                        program_number = pmt_pid_to_program[pid]
+                        print(f"\n===== PMT Packet 발견 (Program Number: {program_number}, PMT PID: {pid}) =====")
 
                         # Pointer Field
                         pointer_field = packet[payload_start]
@@ -209,68 +264,80 @@ def analyze_ts(file_path):
                                 | packet[stream_start + 4]
                             )
 
-                            if stream_type == 0x02:
-                                codec = "MPEG-2 Video"
-                                video_pid = elementary_pid
-                                video_codec = codec
-                            elif stream_type == 0x1B:
-                                codec = "H.264 Video"
-                                video_pid = elementary_pid
-                                video_codec = codec
-                            elif stream_type == 0x24:
-                                codec = "H.265 Video"
-                                video_pid = elementary_pid
-                                video_codec = codec
-                            elif stream_type == 0x0F:
-                                codec = "AAC Audio"
-                                audio_pid = elementary_pid
-                                audio_codec = codec
-                            elif stream_type == 0x03:
-                                codec = "MPEG Audio"
-                                audio_pid = elementary_pid
-                                audio_codec = codec
-                            else:
-                                codec = "Unknown"
+                            codec, media_type = STREAM_TYPE_INFO.get(stream_type, ("Unknown","other"))
 
+
+                            if media_type == "video":                                
+                                video_pid = elementary_pid
+                                video_codec = codec
+                            elif media_type =="audio":
+                                audio_pid = elementary_pid
+                                audio_codec = codec
+
+                            # 언어 정보 추출 (ISO_639_language_descriptor, tag 0x0A)
+                            language = None
+                            descriptor_pos = stream_start + 5
+                            descriptor_end = descriptor_pos + es_info_length
+ 
+                            while descriptor_pos + 2 <= descriptor_end:
+                                descriptor_tag = packet[descriptor_pos]
+                                descriptor_length = packet[descriptor_pos + 1]
+ 
+                                if (descriptor_tag == LANGUAGE_DESCRIPTOR_TAG
+                                        and descriptor_length >= 3
+                                        and descriptor_pos + 5 <= descriptor_end):
+                                    lang_bytes = packet[descriptor_pos + 2: descriptor_pos + 5]
+                                    language = lang_bytes.decode("ascii", errors="ignore")
+ 
+                                descriptor_pos += 2 + descriptor_length
+                                                        # PID 매핑 정보 저장
+                            pid_map[elementary_pid] = {
+                                "program_number": program_number,
+                                "stream_type": f"0x{stream_type:02X}",
+                                "codec": codec,
+                                "media_type": media_type,
+                                "language": language,
+                            }
+ 
+                            print(f"Program Number : {program_number}")
                             print(f"Codec : {codec}")
-
                             print(f"Stream Type : 0x{stream_type:02X}")
                             print(f"Elementary PID : {elementary_pid}")
                             print(f"ES Info Length : {es_info_length}")
+                            print(f"Language : {language if language else '-'}")
                             print()
-
+    
                             # 다음 스트림으로 이동
                             stream_start += 5 + es_info_length
 
                         #PMT 분석완료
-                        pmt_parsed = True
-
-                        # Unknown PID 검사
-                        if pmt_parsed and pid not in valid_pids:
-                            print(f"[Unknown PID] Packet {count}: PID = {pid}")
-                            unknown_pid_count += 1
-
+                        parsed_pmt_pids.add(pid)
+                        
                     except IndexError as e:
                         parse_error_count += 1
                         print(f"Error: PMT 파싱 중 오류 발생 (범위초과) : {e}") 
 
             except Exception as e:
+                # 개별 패킷 처리 중 오류가 발생해도 중단되지 않음
                 parse_error_count += 1
                 print(f"Error: 패킷 파싱 중 오류 발생 : {e}")
                 continue    
-
-
+  
     return {
         "total_packets": count,
-        "pmt_pid": pmt_pid,
+        "pmt_pid": pmt_pid, # 하위 호환용 (마지막으로 파싱된 PMT PID)
         "pcr_pid": pcr_pid,
+        "network_pid": network_pid,
+        "programs": programs, # program_number -> pmt_pid
         "video_pid": video_pid,
         "audio_pid": audio_pid,
         "video_codec": video_codec,
         "audio_codec": audio_codec,
+        "pid_map": pid_map, # pid -> {program_number, stream_type, codec, media_type, language}
         "sync_error_count": sync_error_count,
         "cc_error_count": cc_error_count,
         "unknown_pid_count": unknown_pid_count,
+        "parse_error_count": parse_error_count,
         "pid_count": pid_count,
         "packets": packets
 }
