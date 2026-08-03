@@ -52,7 +52,9 @@ def analyze_ts(file_path):
 
         pid_count ={}
 
+        
         sync_error_count = 0
+        sync_loss_events = []
         cc_error_count = 0
         unknown_pid_count = 0
         parse_error_count =0
@@ -88,8 +90,45 @@ def analyze_ts(file_path):
 
                 if sync_byte != 0x47:
                     sync_error_count += 1
-                    print(f"[SYNC LOSS] Packet {count}: Sync Byte = 0x{sync_byte:02X} (Expected: 0x47)")
-                    break
+                    start_packet = count
+                    start_offset = f.tell() - TS_PACKET_SIZE # 현재 패킷 시작 파일 오프셋
+                    print(f"[sync loss] Packet {count}: Sync Byte = 0x{sync_byte:02X} (Expected: 0x47)")
+
+
+                    # 재동기화: 다음 0 x47을 찾을 때까지 1바이트씩 이동하며 탐색
+                    skipped = 0
+                    resynced = False
+                    search_offset = start_offset +1 
+
+                    while True:
+                        f.seek(search_offset)
+                        b = f.read(1)
+                        if not b:
+                            break  # 파일 끝에 도달
+
+                        if b[0] == 0x47:
+                            # 다음 패킷이 유효한지 확인
+                            f.seek(search_offset + TS_PACKET_SIZE)
+                            next_sync = f.read(1)
+                            if not next_sync or next_sync[0] == 0x47:
+                                resynced = True
+                                break
+
+                        search_offset += 1
+                        skipped += 1
+                
+                    sync_loss_events.append({
+                        "start_packet": start_packet,
+                        "end_packet": count +1 if resynced else "EOF",
+                        "start_offset": start_offset,
+                        "skipped_bytes": skipped
+                    })
+
+                    if resynced:
+                        f.seek(search_offset)
+                        continue  # 다음 패킷으로 이동
+                    else:
+                        break
 
                 # Header Parsing
                 tei = (packet[1] & 0x80) >> 7
@@ -121,10 +160,10 @@ def analyze_ts(file_path):
 
                     if cc != expected_cc:
                         cc_error_count += 1
-                        cc_error = True
-                        print(f"CC Error: PID {pid}: " 
-                                f"Expected {expected_cc}, Received {cc}")
-
+                        print(
+                            f"[CC ERROR] Packet {count}, PID={pid}, "
+                            f"Expected={expected_cc}, Received={cc}, AFC={afc}"
+    )
                 last_cc[pid] = cc
 
                 # Payload 시작 위치
@@ -325,6 +364,8 @@ def analyze_ts(file_path):
                 # 개별 패킷 처리 중 오류가 발생해도 중단되지 않음
                 parse_error_count += 1
                 print(f"Error: 패킷 파싱 중 오류 발생 : {e}")
+                import traceback
+                traceback.print_exc()
                 continue    
   
     return {
@@ -339,6 +380,7 @@ def analyze_ts(file_path):
         "audio_codec": audio_codec,
         "pid_map": pid_map, # pid -> {program_number, stream_type, codec, media_type, language}
         "sync_error_count": sync_error_count,
+        "sync_loss_events": sync_loss_events,
         "cc_error_count": cc_error_count,
         "unknown_pid_count": unknown_pid_count,
         "parse_error_count": parse_error_count,
