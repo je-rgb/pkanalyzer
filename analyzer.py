@@ -112,6 +112,7 @@ def analyze_ts(file_path):
                 scrambling_control = (packet[3] & 0xC0) >> 6
                 afc = (packet[3] & 0x30) >> 4
                 cc = packet[3] & 0x0F
+                cc_error = False
 
                 # CC 유효성 검사
                 if pid in last_cc:
@@ -120,6 +121,7 @@ def analyze_ts(file_path):
 
                     if cc != expected_cc:
                         cc_error_count += 1
+                        cc_error = True
                         print(f"CC Error: PID {pid}: " 
                                 f"Expected {expected_cc}, Received {cc}")
 
@@ -143,6 +145,7 @@ def analyze_ts(file_path):
                     "scrambling_control": scrambling_control,
                     "afc": afc,
                     "cc": cc,
+                    "cc_error": cc_error,
                     "sync_byte": sync_byte
 
                 })
