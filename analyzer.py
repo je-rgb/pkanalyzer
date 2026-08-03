@@ -135,8 +135,9 @@ def analyze_ts(file_path):
                     adaptation_length = packet[4]
                     payload_start = 5 + adaptation_length
 
-
-                packets.append({
+                # GUI 에는 처음 1000개 패킷만 표시
+                if len(packets) < 1000:
+                    packets.append({
                     "no": count,
                     "pid": pid,
                     "tei": tei,
@@ -344,3 +345,8 @@ def analyze_ts(file_path):
         "pid_count": pid_count,
         "packets": packets
 }
+
+DEBUG = False
+
+if DEBUG:
+    print(...)

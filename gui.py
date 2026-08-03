@@ -261,7 +261,12 @@ class MainWindow(QMainWindow):
         sync_loss_events = result.get("sync_loss_events", [])
 
         self.info.setText(
-            f"""총 패킷 : {result["total_packets"]}
+            f"""
+        총 패킷 : {result["total_packets"]}
+
+        표시된 패킷: {len(result['packets'])}
+        
+        (성능을 위해 처음 1000개 패킷만 표시됩니다.)
 
         프로그램 :
         {program_lines}
