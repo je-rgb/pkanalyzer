@@ -151,19 +151,18 @@ def analyze_ts(file_path):
                 scrambling_control = (packet[3] & 0xC0) >> 6
                 afc = (packet[3] & 0x30) >> 4
                 cc = packet[3] & 0x0F
+
                 cc_error = False
 
                 # CC 유효성 검사
                 if pid in last_cc:
-
-                    expected_cc = (last_cc[pid] + 1) % 16
-
-                    if cc != expected_cc:
+                    if afc in (1, 3):  # payload가 있는 경우만 CC 증가 검사
+                       expected_cc = (last_cc[pid] + 1) % 16
+                       if cc != expected_cc:
                         cc_error_count += 1
-                        print(
-                            f"[CC ERROR] Packet {count}, PID={pid}, "
-                            f"Expected={expected_cc}, Received={cc}, AFC={afc}"
-    )
+                        cc_error = True
+                        print(f"[CC ERROR] Packet {count}, PID={pid}, Expected={expected_cc}, Received={cc}, AFC={afc}")
+
                 last_cc[pid] = cc
 
                 # Payload 시작 위치
@@ -174,7 +173,7 @@ def analyze_ts(file_path):
                     adaptation_length = packet[4]
                     payload_start = 5 + adaptation_length
 
-                # GUI 에는 처음 1000개 패킷만 표시
+                # # GUI 에는 처음 1000개 패킷만 표시
                 if len(packets) < 1000:
                     packets.append({
                     "no": count,
@@ -388,7 +387,3 @@ def analyze_ts(file_path):
         "packets": packets
 }
 
-DEBUG = False
-
-if DEBUG:
-    print(...)
