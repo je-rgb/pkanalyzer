@@ -72,25 +72,44 @@ def make_cc_error(src, dst, target_pid=256, occurrence=2, max_packet_limit=1000)
     print(f"{dst} 생성 완료")
 
 
-if __name__ == "__main__":
-    # PID 0(PAT)은 파일 앞부분에 자주 반복 등장하므로 1000번째 이내로 잡힐 가능성이 높음
-    make_cc_error("samples/sample.ts", "samples/cc_error.ts", target_pid=0, occurrence=2)
-
-
-def make_unknown_pid(src, dst):
-    """첫 번째 패킷의 PID를 존재하지 않는 값으로 변경"""
+def make_unknown_pid(src, dst, target_index=50, fake_pid=8191):
+    """
+    기존 TS 패킷 중 target_index번째 패킷의 PID를 fake_pid로 변경.
+    (새 패킷을 삽입하는 게 아니라 원본 패킷 하나를 덮어씀 → 전체 패킷 수는 그대로 유지됨)
+    target_index=0(PAT 패킷)은 변경하지 않도록 방지.
+    """
 
     with open(src, "rb") as f:
         data = bytearray(f.read())
 
-    # PID = 8191 (0x1FFF)로 변경
-    data[1] = (data[1] & 0xE0) | 0x1F
-    data[2] = 0xFF
+    total_packets = len(data) // TS_PACKET_SIZE
+    if total_packets < 2:
+        raise ValueError("입력 파일에 패킷이 충분하지 않습니다.")
+
+    if target_index == 0:
+        raise ValueError("0번째 패킷(PAT)은 변경할 수 없습니다.")
+    if not (1 <= target_index < total_packets):
+        raise ValueError(f"target_index는 1 이상 {total_packets - 1} 이하여야 합니다.")
+    if not (0 <= fake_pid <= 0x1FFF):
+        raise ValueError("fake_pid는 0~8191(13비트) 범위여야 합니다.")
+
+    offset = target_index * TS_PACKET_SIZE
+
+    # sync byte(0x47) 확인 (정상적인 TS 패킷 경계인지 체크)
+    if data[offset] != 0x47:
+        raise ValueError(f"target_index={target_index} 위치가 TS 패킷 경계가 아닙니다.")
+
+    # PID 필드(바이트 1-2)만 수정. transport_error_indicator, payload_unit_start_indicator,
+    # transport_priority 등 상위 3비트는 그대로 유지하고 하위 13비트(PID)만 교체
+    original_b1 = data[offset + 1]
+    top3bits = original_b1 & 0xE0  # 상위 3비트 보존
+    data[offset + 1] = top3bits | ((fake_pid >> 8) & 0x1F)
+    data[offset + 2] = fake_pid & 0xFF
 
     with open(dst, "wb") as f:
         f.write(data)
 
-    print(f"{dst} 생성 완료")
+    print(f"{dst} 생성 완료 (target_index={target_index}, PID={fake_pid})")
 
 
 if __name__ == "__main__":
