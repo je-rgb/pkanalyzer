@@ -161,8 +161,15 @@ def analyze_ts(file_path):
                        if cc != expected_cc:
                         cc_error_count += 1
                         cc_error = True
+<<<<<<< HEAD
                         print(f"[CC ERROR] Packet {count}, PID={pid}, Expected={expected_cc}, Received={cc}, AFC={afc}")
 
+=======
+                        print(
+                            f"[CC ERROR] Packet {count}, PID={pid}, "
+                            f"Expected={expected_cc}, Received={cc}, AFC={afc}"
+    )
+>>>>>>> aae5c6c (cc check 완료)
                 last_cc[pid] = cc
 
                 # Payload 시작 위치
@@ -386,4 +393,7 @@ def analyze_ts(file_path):
         "pid_count": pid_count,
         "packets": packets
 }
+<<<<<<< HEAD
 
+=======
+>>>>>>> aae5c6c (cc check 완료)
