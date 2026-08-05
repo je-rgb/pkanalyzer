@@ -57,6 +57,7 @@ def analyze_ts(file_path):
         sync_loss_events = []
         cc_error_count = 0
         unknown_pid_count = 0
+        unknown_pid_summary ={}
         parse_error_count =0
 
         video_pid = None
@@ -146,15 +147,16 @@ def analyze_ts(file_path):
                 # PMT가 하나 이상 파싱된 후부터 valid_pids 에 없는 PID는 unknown으로 집계
                 if parsed_pmt_pids and pid not in valid_pids:
                     unknown_pid_count += 1
+                    unknown_pid_summary[pid] = unknown_pid_summary.get(pid, 0)+1
                     print(f"[Unknown PID] Packet {count}: PID = {pid}")
 
+                # CC 유효성 검사
                 scrambling_control = (packet[3] & 0xC0) >> 6
                 afc = (packet[3] & 0x30) >> 4
                 cc = packet[3] & 0x0F
 
                 cc_error = False
 
-                # CC 유효성 검사
                 if pid in last_cc:
                     if afc in (1, 3):  # payload가 있는 경우만 CC 증가 검사
                        expected_cc = (last_cc[pid] + 1) % 16
@@ -385,6 +387,7 @@ def analyze_ts(file_path):
         "sync_loss_events": sync_loss_events,
         "cc_error_count": cc_error_count,
         "unknown_pid_count": unknown_pid_count,
+        "summary": unknown_pid_summary,
         "parse_error_count": parse_error_count,
         "pid_count": pid_count,
         "packets": packets
