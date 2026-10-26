@@ -116,7 +116,8 @@ TS 파일을 패킷 단위로 읽고 헤더에 포함된 주요 정보를 추출
 패킷을 PID별로 분류하고 개수를 집
 
 ## 🖥️ 4. 차별점
-PKA 시연 영상.gif
+
+https://github.com/je-rgb/pkanalyzer/blob/8fd25377b29cc8a7fea18d157815e96496f9a877/PKA%20%EC%8B%9C%EC%97%B0%20%EC%98%81%EC%83%81.gif
 
 
 - 기존 packet analyzer와 달리 GUI 를 통해 유실된 패킷을 시각적으로 확인할 수 있다.
